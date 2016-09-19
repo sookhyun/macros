@@ -1,13 +1,9 @@
-#include <string>
-#include <sstream>
-#include <iostream>
-using namespace std;
-
 
 int Fun4All_EventDisplay(
 		       const int nEvents = 10,
-		       const char * inputFile = "/gpfs02/phenix/prod/sPHENIX/preCDR/pro.1-beta.5/single_particle/spacal1d/fieldmap/G4Hits_sPHENIX_e-_eta0_16GeV.root",
-		       const char * outputFile = "G4sPHENIXCells.root"
+		       const char * inputFile = "/sphenix/sim//sim01/production/2016-07-21/single_particle/spacal2d/fieldmap/G4Hits_sPHENIX_e-_eta0_8GeV-0002.root",
+		       const char * outputFile = "G4sPHENIXCells.root",
+           const char * embed_input_file = "/sphenix/sim/sim01/production/2016-07-12/sHijing/spacal2d/G4Hits_sPHENIX_sHijing-0-4.4fm.list"
 		       )
 {
   //===============
@@ -18,6 +14,9 @@ int Fun4All_EventDisplay(
   // read previously generated g4-hits files, in this case it opens a DST and skips
   // the simulations step completely. The G4Setup macro is only loaded to get information
   // about the number of layers used for the cell reco code
+  //
+  // In case reading production output, please double check your G4Setup_sPHENIX.C and G4_*.C consistent with those in the production macro folder
+  // E.g. /sphenix/sim//sim01/production/2016-07-21/single_particle/spacal2d/
   const bool readhits = false;
   // Or:
   // read files in HepMC format (typically output from event generators like hijing or pythia)
@@ -26,19 +25,23 @@ int Fun4All_EventDisplay(
   // Use particle generator
   const bool runpythia8 = true;
   const bool runpythia6 = false;
+  // And
+  // Further choose to embed newly simulated events to a previous simulation. Not compatible with `readhits = true`
+  // In case embedding into a production output, please double check your G4Setup_sPHENIX.C and G4_*.C consistent with those in the production macro folder
+  // E.g. /sphenix/sim//sim01/production/2016-07-21/single_particle/spacal2d/
+  const bool do_embedding = false;
 
   //======================
   // What to run
   //======================
 
-  bool do_bbc = false;
-  
+  bool do_bbc =true;
   bool do_pipe = false;
   
   bool do_svtx = true;
   bool do_svtx_cell = true;
   bool do_svtx_track = true;
-  bool do_svtx_eval = false;
+  bool do_svtx_eval = true;
 
   bool do_preshower = false;
   
@@ -77,14 +80,15 @@ int Fun4All_EventDisplay(
   //---------------
 
   gSystem->Load("libfun4all.so");
- // gSystem->Load("libfun4allfuncs.so");
+  gSystem->Load("libphgeom.so");
   gSystem->Load("libg4detectors.so");
   gSystem->Load("libphhepmc.so");
   gSystem->Load("libg4testbench.so");
-  gSystem->Load("/afs/rhic.bnl.gov/sphenix/sys/x8664_sl6/new.1/lib/libg4hough.so");
+  gSystem->Load("libg4hough.so");
   gSystem->Load("libcemc.so");
   gSystem->Load("libg4eval.so");
-  //gSystem->ListLibraries();
+
+  gSystem->ListLibraries();
   // establish the geometry and reconstruction setup
   gROOT->LoadMacro("G4Setup_sPHENIX.C");
   G4Init(do_svtx,do_preshower,do_cemc,do_hcalin,do_magnet,do_hcalout,do_pipe);
@@ -99,7 +103,7 @@ int Fun4All_EventDisplay(
   //---------------
 
   Fun4AllServer *se = Fun4AllServer::instance();
-  se->Verbosity(0); 
+  se->Verbosity(2);
   // just if we set some flags somewhere in this macro
   recoConsts *rc = recoConsts::instance();
   // By default every random number generator uses
@@ -120,6 +124,13 @@ int Fun4All_EventDisplay(
     {
       // Get the hits from a file
       // The input manager is declared later
+
+      if (do_embedding)
+       {
+         cout <<"Do not support read hits and embed background at the same time."<<endl;
+         exit(1);
+       }
+
     }
   else if (readhepmc)
     {
@@ -130,8 +141,8 @@ int Fun4All_EventDisplay(
     }
   else if (runpythia8)
     {
-    //  gSystem->Load("libPHPythia8.so");
-      gSystem->Load("/afs/rhic.bnl.gov/sphenix/sys/x8664_sl6/new.1/lib/libPHPythia8.so");
+      gSystem->Load("/afs/rhic.bnl.gov/sphenix/sys/x8664_sl6/new.2/lib/libPHPythia8.so");
+      
       PHPythia8* pythia8 = new PHPythia8();
       // see coresoftware/generators/PHPythia8 for example config
       pythia8->set_config_file("phpythia8.cfg"); 
@@ -155,9 +166,9 @@ int Fun4All_EventDisplay(
     {
       // toss low multiplicity dummy events
       PHG4SimpleEventGenerator *gen = new PHG4SimpleEventGenerator();
-      gen->add_particles("e-",5); // mu+,e+,proton,pi+,Upsilon
-      gen->add_particles("e+",5); // mu-,e-,anti_proton,pi-
-      if (readhepmc) {
+      gen->add_particles("e-",1); // mu+,e+,proton,pi+,Upsilon
+      // gen->add_particles("e+",5); // mu-,e-,anti_proton,pi-
+      if (readhepmc || do_embedding) {
 	gen->set_reuse_existing_vertex(true);
 	gen->set_existing_vertex_offset_vector(0.0,0.0,0.0);
       } else {
@@ -186,7 +197,6 @@ int Fun4All_EventDisplay(
       G4Setup(absorberactive, magfield, TPythia6Decayer::kAll,
 	      do_svtx, do_preshower, do_cemc, do_hcalin, do_magnet, do_hcalout, do_pipe, magfield_rescale);
     }
-
 
   //---------
   // BBC Reco
@@ -275,24 +285,6 @@ int Fun4All_EventDisplay(
   if (do_jet_eval) Jet_Eval("g4jet_eval.root");
 
 
-  //---------------
-  // Event display
-  //---------------
-     gSystem->Exec("/bin/env");
-     gSystem->Load("libpheve.so");
-     gSystem->Load("libPHBFieldMap.so");
-     PHEventDisplay* event_display
-        = new PHEventDisplay(1920,860,true,"sPHENIX.2d.root", "sphenix_maps+tpc_geo.root",
-				5.,30.,0.0009,true,false,false);
-		/*jet_pt_threshold, jet_e_scale, calo_e_threshold, is_svtx_on, is_calo_on, is_jet_on */
-
-  //----------------------------
-  // Link the display to Fun4All
-  //----------------------------
-  se->registerSubsystem(event_display);
-  //event_display->start_rotation();
-
-
 
   //-------------- 
   // IO management
@@ -304,6 +296,19 @@ int Fun4All_EventDisplay(
       Fun4AllInputManager *hitsin = new Fun4AllDstInputManager("DSTin");
       hitsin->fileopen(inputFile);
       se->registerInputManager(hitsin);
+    }
+  if (do_embedding)
+    {
+      if (embed_input_file == NULL)
+        {
+          cout << "Missing embed_input_file! Exit";
+          exit(3);
+        }
+
+      Fun4AllDstInputManager *in1 = new Fun4AllNoSyncDstInputManager("DSTinEmbed");
+      //      in1->AddFile(embed_input_file); // if one use a single input file
+      in1->AddListFile(embed_input_file); // RecommendedL: if one use a text list of many input files
+      se->registerInputManager(in1);
     }
   if (readhepmc)
     {
@@ -339,6 +344,10 @@ int Fun4All_EventDisplay(
           );
     }
 
+  // Fun4AllDstOutputManager *out = new Fun4AllDstOutputManager("DSTOUT", outputFile);
+  // if (do_dst_compress) DstCompress(out);
+  // se->registerOutputManager(out);
+
 
   //-----------------
   // Event processing
@@ -355,9 +364,32 @@ int Fun4All_EventDisplay(
       return;
     }
 
+    //---------------
+    // Event display
+    //---------------
 
-  timer = new TTimer();
-  timer->Connect("Timeout()", "PHEventDisplay", event_display,"run_evt_in_thread()");
-  timer->Start(200000,kFALSE);
+     gSystem->Exec("/bin/env");
+     gSystem->Load("libpheve.so");
+     gSystem->Load("libPHBFieldMap.so");
+     //          	    width height use_fieldmap use_geofile field-map name    geo-fiel name
+     PHEventDisplay* event_display
+        = new PHEventDisplay(1920,860,     true,      false,     "sPHENIX.2d.root", "sphenix_maps+tpc_geo.root");
+     // location of geometry file : /gpfs/mnt/gpfs02/sphenix/user/shlee/svtx/stage1_jobs
+     event_display->set_jet_pt_threshold(10.);//GeV/c
+     event_display->set_jet_e_scale(30.);//GeV
+     event_display->set_calo_e_threshold(0.0009);//GeV
+     event_display->set_svtx_on(true);
+     event_display->set_cemc_on(true);
+     event_display->set_hcalin_on(false);
+     event_display->set_hcalout_on(false);
+     event_display->set_jet_on(false);
+     event_display->set_truth_on(false);
+     event_display->set_verbosity(2);
+
+     se->registerSubsystem(event_display);
+     //event_display->start_rotation();
+     timer = new TTimer();
+     timer->Connect("Timeout()", "PHEventDisplay", event_display,"run_evt_in_thread()");
+     timer->Start(100000,kFALSE);
 
 }
